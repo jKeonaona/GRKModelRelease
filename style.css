@@ -1,0 +1,125 @@
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: url('Backgroundimage.png') no-repeat center center fixed;
+  background-size: cover;
+  color: #fff;
+}
+
+.overlay {
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 20px;
+  max-width: 600px;
+  margin: 40px auto;
+  border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.logo {
+  display: block;
+  margin: 0 auto 20px;
+  width: 120px;
+  height: auto;
+}
+
+h1 {
+  text-align: center;
+  font-size: 1.8em;
+  margin-bottom: 20px;
+}
+
+form label {
+  display: block;
+  margin-bottom: 15px;
+  font-weight: 600;
+}
+.logo {
+  -webkit-touch-callout: none;  /* iOS: reduce long-press menu */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input[type="text"],
+select,
+input[type="email"],
+input[type="date"],
+textarea {
+  width: 100%;
+  padding: 10px;
+  margin-top: 5px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1em;
+  background-color: #fff;
+  color: #000;
+  box-sizing: border-box;
+}
+
+textarea {
+  resize: vertical;
+}
+
+button {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  font-size: 1em;
+  color: white;
+  background-color: #444;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 20px;
+}
+
+button:hover {
+  background-color: #666;
+}
+
+#guardianSection {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-left: 4px solid #fff;
+  border-radius: 8px;
+}
+
+/* 🎯 Signature Canvas Styling */
+canvas {
+  width: 100%;
+  height: 150px;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  margin-top: 5px;
+  margin-bottom: 10px;
+  touch-action: none;
+}
+
+/* ✅ Confirmation Message Styling */
+#confirmationMessage {
+  display: none;
+  text-align: center;
+  margin-top: 20px;
+  font-weight: bold;
+  font-size: 1.1rem;
+  padding: 12px;
+  border-radius: 8px;
+  background-color: rgba(144, 238, 144, 0.15);
+  color: #aaffaa;
+  border: 1px solid #77dd77;
+  animation: fadeInOut 3s ease-in-out;
+}
+
+/* Optional: Fade in/out effect */
+@keyframes fadeInOut {
+  0%   { opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+#clearSigBtn { margin-top: 8px; }
+#clearSigBtn:disabled { opacity: .5; cursor: not-allowed; }
+
+
