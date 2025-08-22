@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>WildPx Model Release</title>
+  <!-- PWA setup -->
+  <link rel="manifest" href="/ModelReleaseForm/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <style>
+    :root { --ok:#22c55e; --err:#ef4444; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Segoe UI,Tahoma,Arial,sans-serif;color:#fff;background:url('BackgroundImage.png') center/cover fixed no-repeat}
+    body::before{content:"";position:fixed;inset:0;background:rgba(0,100,0,.8);z-index:0}
+    .overlay{position:relative;z-index:1;background:rgba(0,0,0,.65);max-width:640px;margin:40px auto;padding:20px;border-radius:12px;box-shadow:0 4px 10px rgba(0,0,0,.4)}
+    label,select,input,textarea,button{display:block;width:100%;margin-bottom:12px;font-size:1rem}
+    input,select,textarea{padding:8px;border:none;border-radius:4px;background:#fff;color:#111}
+    button{background:#5cb85c;color:#fff;font-weight:700;padding:10px;border:none;border-radius:6px;cursor:pointer}
+    button:hover{background:#4cae4c}
+    .logo{display:block;margin:0 auto 16px;max-width:200px;user-select:none;-webkit-user-drag:none}
+    canvas{background:#fff;border:1px solid #ccc;border-radius:4px;display:block;width:100%;height:150px;margin-bottom:10px;touch-action:none}
+    #banner{display:none;position:fixed;left:16px;right:16px;top:12px;z-index:9999;padding:12px;border-radius:8px;text-align:center;font-weight:700}
+    #banner.ok{background:rgba(34,197,94,.96)}
+    #banner.err{background:rgba(239,68,68,.96)}
+    #adminBar{display:none;gap:8px;align-items:center;margin:10px 0}
+    #adminBar button{flex:0 0 auto}
+    small{color:#ddd}
+    ul{padding-left:20px}
+    ul li{margin-bottom:6px}
+  </style>
+</head>
+<body>
+  <!-- Confirmation banner -->
+  <div id="banner" role="status" aria-live="polite"></div>
+
+  <div class="overlay">
+    <img src="WILDPX-01-5.png" alt="WildPx Logo" class="logo">
+
+    <!-- Hidden admin bar (triple-tap logo to toggle) -->
+    <div id="adminBar">
+      <button type="button" id="exportAllBtn" style="background:#2563eb">Export All</button>
+      <button type="button" id="exportClearBtn" style="background:#7c3aed">Export & Clear</button>
+      <button type="button" id="exportCsvBtn" style="background:#d97706">Export CSV</button>
+      <button type="button" id="printPdfBtn" style="background:#f59e0b">Print / Save PDF</button>
+      <span id="savedCount" style="font-size:.9rem;opacity:.9">Saved: 0</span>
+    </div>
+
+    <h1>Model & Photo Release Form</h1>
+
+    <form id="releaseForm" novalidate>
+      <label>Model Full Name:
+        <input type="text" name="fullName" required />
+      </label>
+      <label>Address Line 1:
+        <input type="text" name="address1" />
+      </label>
+      <label>Address Line 2:
+        <input type="text" name="address2" />
+      </label>
+      <label>City:
+        <input type="text" name="city" />
+      </label>
+      <label>State:
+        <input type="text" name="state" />
+      </label>
+      <label>Zip Code:
+        <input type="text" name="zip" />
+      </label>
+      <label>Phone:
+        <input type="text" name="phone" />
+      </label>
+      <label>Email:
+        <input type="email" name="email" />
+      </label>
+      <label>Are you at least 18 years of age?
+        <select id="ageCheck" name="ageCheck" required>
+          <option value="">Select</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </label>
+      <div id="childrenSection" style="display:none">
+        <h3>Additional Children (if any)</h3>
+        <label>Names and ages:<br>
+          <small>Example: Jane (7), Sam (5)</small>
+          <textarea name="additionalChildren" rows="3" placeholder="Enter names and ages here"></textarea>
+        </label>
+      </div>
+      <div id="guardianSection" style="display:none">
+        <h3>Parent/Guardian Info</h3>
+        <label>Guardian Name:
+          <input type="text" name="guardianName" />
+        </label>
+        <label>Relationship to Participant:
+          <input type="text" name="guardianRelationship" />
+        </label>
+      </div>
+      <label>
+        Please take or upload a photo of the participant.<br>
+        <small>Tap Upload to open camera or files.</small>
+        <input type="file" id="headshot" name="headshot" accept="image/*" capture="user" />
+      </label>
+      <p><strong>Photo Release & Copyright Agreement</strong></p>
+      <p>
+        I hereby grant WildPx LLC, its legal representatives, assigns, and licensees the absolute and irrevocable right
+        and permission to use, publish, reproduce, modify, or otherwise exploit, in whole or in part, my likeness and
+        any photographs or digital images taken of me, in any form, media, or manner, now or hereafter known, for any
+        purpose, including advertising, promotion, marketing, editorial, and display. I acknowledge that all copyrights
+        in the images are the sole and exclusive property of WildPx LLC, and I waive any right to inspect or approve the
+        final images, derivatives, or uses thereof. I further agree that I shall not reproduce, distribute, alter, edit,
+        or otherwise use any of the images without prior written consent from WildPx LLC.
+      </p>
+      <ul>
+        <li>All image copyrights belong to WildPx LLC.</li>
+        <li>No compensation unless agreed in writing.</li>
+        <li>Images may be edited, retouched, or modified.</li>
+        <li>I waive any right to review or approve final uses.</li>
+        <li>I will not reproduce or edit images without written permission.</li>
+      </ul>
+      <label><span id="signatureLabel">Model Signature:</span></label>
+      <canvas id="signatureCanvas"></canvas>
+      <button type="button" id="clearSigBtn" aria-label="Clear signature">Clear Signature</button>
+      <input type="hidden" name="modelSignature" id="signatureData" />
+      <label>Date:
+        <input type="date" name="signatureDate" />
+        <small>If left blank, today’s date will be used on submit.</small>
+      </label>
+      <button type="submit">Submit</button>
+    </form>
+  </div>
+
+  <!-- Signature Pad library (v4.1.5) -->
+  <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.5/dist/signature_pad.umd.min.js"></script>
+  <!-- App logic -->
+  <script src="./app-v1.js?v=3"></script>
+</body>
+</html>
