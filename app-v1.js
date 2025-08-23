@@ -31,6 +31,15 @@ else {
     });
   }
 
+  // Cache validation
+  window.addEventListener('load', () => {
+    caches.open('wildpx-release-v7').then(cache => {
+      cache.keys().then(keys => {
+        console.log('Cached assets:', keys.map(req => req.url));
+      });
+    });
+  });
+
   // In-memory storage
   let memoryStore = [];
 
@@ -185,7 +194,7 @@ else {
       const gName = form.elements['guardianName'];
       const gRel = form.elements['guardianRelationship'];
       if (gName) gName.required = minor;
-      if (gRel) gName.required = minor;
+      if (gRel) gRel.required = minor;
       if (signatureLabelEl) signatureLabelEl.textContent = minor ? 'Parent/Guardian Signature:' : 'Model Signature:';
       form.style.display = 'none';
       form.offsetHeight;
