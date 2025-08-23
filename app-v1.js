@@ -1,4 +1,4 @@
-/* ---------- WildPx Model Release — Clean, Verified Drop-In ---------- */
+/* ---------- WildPx Model Release — Clean, Verified Drop-In for PC and iPad ---------- */
 function toast(kind, msg) {
   const banner = document.getElementById('banner');
   if (!banner) return;
@@ -76,9 +76,22 @@ else {
     }
 
     signatureCanvas.style.touchAction = 'none';
+    signatureCanvas.style.userSelect = 'none';
     if (!signatureCanvas.style.height) signatureCanvas.style.height = '150px';
     const pad = new window.SignaturePad(signatureCanvas, { penColor: '#000' });
     pad.onEnd = updateClearState;
+
+    // Prevent default touch behaviors on canvas for iPad
+    signatureCanvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+    signatureCanvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+    signatureCanvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      scheduleResize();
+    }, { passive: false });
 
     let lastCssW = 0;
     function resizeCanvasPreserve(canvas, padInst) {
@@ -92,6 +105,8 @@ else {
       const cssH = Math.floor(parseFloat(getComputedStyle(canvas).height) || 150);
       canvas.width = Math.floor(cssW * ratio);
       canvas.height = Math.floor(cssH * ratio);
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
       const ctx = canvas.getContext('2d');
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       padInst.clear();
@@ -174,31 +189,53 @@ else {
     (function setupTripleTap() {
       if (!logo || !adminBar) return;
       logo.style.pointerEvents = 'auto';
+      logo.style.touchAction = 'none';
       const REQUIRED_TAPS = 3;
-      const WINDOW_MS = 800;
+      const WINDOW_MS = 1000; // Increased for iPad reliability
       let taps = 0, firstAt = 0, timer = null, lastTouch = 0;
-      function reset() { taps = 0; firstAt = 0; if (timer) { clearTimeout(timer); timer = null; } }
-      function toggle() { adminBar.style.display = (adminBar.style.display === 'none' || !adminBar.style.display) ? 'flex' : 'none'; }
-      function onTouchEnd(ev) {
+      function reset() {
+        taps = 0;
+        firstAt = 0;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      }
+      function toggle() {
+        adminBar.style.display = (adminBar.style.display === 'none' || !adminBar.style.display) ? 'flex' : 'none';
+      }
+      function handleTap(isTouch) {
+        const now = Date.now();
+        if (isTouch) lastTouch = now;
+        if (!firstAt || (now - firstAt) > WINDOW_MS) {
+          firstAt = now;
+          taps = 1;
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(reset, WINDOW_MS + 100);
+        } else {
+          taps++;
+        }
+        if (taps >= REQUIRED_TAPS) {
+          if (timer) clearTimeout(timer);
+          reset();
+          toggle();
+        }
+      }
+      logo.addEventListener('touchstart', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        lastTouch = Date.now();
-        const now = lastTouch;
-        if (!firstAt || (now - firstAt) > WINDOW_MS) { firstAt = now; taps = 1; if (timer) clearTimeout(timer); timer = setTimeout(reset, WINDOW_MS + 100); }
-        else { taps++; }
-        if (taps >= REQUIRED_TAPS) { if (timer) clearTimeout(timer); reset(); toggle(); }
-      }
-      function onClick(ev) {
+      }, { passive: false });
+      logo.addEventListener('touchend', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        handleTap(true);
+      }, { passive: false });
+      logo.addEventListener('click', (ev) => {
         if (Date.now() - lastTouch < 700) return;
         ev.preventDefault();
         ev.stopPropagation();
-        const now = Date.now();
-        if (!firstAt || (now - firstAt) > WINDOW_MS) { firstAt = now; taps = 1; if (timer) clearTimeout(timer); timer = setTimeout(reset, WINDOW_MS + 100); }
-        else { taps++; }
-        if (taps >= REQUIRED_TAPS) { if (timer) clearTimeout(timer); reset(); toggle(); }
-      }
-      logo.addEventListener('touchend', onTouchEnd, { passive: false });
-      logo.addEventListener('click', onClick, { passive: false });
+        handleTap(false);
+      }, { passive: false });
     })();
 
     function downloadJSON(filename, obj) {
