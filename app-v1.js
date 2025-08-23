@@ -1,4 +1,4 @@
-/* ---------- WildPx Model Release — Simplified PWA Fix for jsPDF and Signatures ---------- */
+/* ---------- WildPx Model Release — JSON-Only PWA for Offline Guided Access ---------- */
 function toast(kind, msg) {
   const banner = document.getElementById('banner');
   if (banner) {
@@ -25,7 +25,7 @@ else {
   // Service worker
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
+      navigator.serviceWorker.register('/ModelReleaseForm/sw.js')
         .then(reg => console.log('Service Worker registered:', reg))
         .catch(e => console.error('Service Worker registration failed:', e));
     });
@@ -78,21 +78,18 @@ else {
     const headIn = form?.elements?.['headshot'];
     const exportAllBtn = document.getElementById('exportAllBtn');
     const exportClearBtn = document.getElementById('exportClearBtn');
+    const exportCsvBtn = document.getElementById('exportCsvBtn');
     const printPdfBtn = document.getElementById('printPdfBtn');
     const logo = document.querySelector('.logo');
-    const adminBar = document.getElementById('adminBar');
 
     if (!form) { err('Form element #releaseForm not found.'); return; }
     if (!signatureCanvas) { err('Signature canvas #signatureCanvas not found.'); return; }
     if (!window.SignaturePad) { err('SignaturePad library is missing.'); return; }
-    if (!window.jspdf) {
-      console.warn('jsPDF library not loaded; PDF export disabled.');
-      if (printPdfBtn) printPdfBtn.disabled = true;
-    }
+    if (printPdfBtn) printPdfBtn.disabled = true; // Disable PDF button (no jsPDF)
 
     function updateSavedCount() {
       getAll().then(entries => {
-        if (savedCountEl) savedCountEl.textContent = 'Saved: ' + entries.length;
+        if (savedCountEl) savedCountEl.textContent = `Saved: ${entries.length}`;
       });
     }
     updateSavedCount();
@@ -124,8 +121,6 @@ else {
     signatureCanvas.style.pointerEvents = 'auto';
     signatureCanvas.style.position = 'relative';
     signatureCanvas.style.zIndex = '1000';
-    signatureCanvas.style.height = '150px';
-    signatureCanvas.style.width = '100%';
     const pad = new window.SignaturePad(signatureCanvas, {
       penColor: '#000',
       minWidth: 0.5,
@@ -190,7 +185,7 @@ else {
       const gName = form.elements['guardianName'];
       const gRel = form.elements['guardianRelationship'];
       if (gName) gName.required = minor;
-      if (gRel) gRel.required = minor;
+      if (gRel) gName.required = minor;
       if (signatureLabelEl) signatureLabelEl.textContent = minor ? 'Parent/Guardian Signature:' : 'Model Signature:';
       form.style.display = 'none';
       form.offsetHeight;
@@ -230,18 +225,15 @@ else {
         if (headshotDataURL.length > 100_000) {
           const img = new Image();
           img.src = headshotDataURL;
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width * 0.2;
-            canvas.height = img.height * 0.2;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            headshotDataURL = canvas.toDataURL('image/jpeg', 0.5);
-            data.headshot = headshotDataURL;
-          };
-        } else {
-          data.headshot = headshotDataURL;
+          await new Promise(resolve => { img.onload = resolve; });
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width * 0.2;
+          canvas.height = img.height * 0.2;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          headshotDataURL = canvas.toDataURL('image/jpeg', 0.5);
         }
+        data.headshot = headshotDataURL;
       } else {
         if ('headshot' in data) delete data.headshot;
       }
@@ -254,7 +246,7 @@ else {
       }
       const holdAge = ageSelect.value;
       form.reset();
-      form.querySelectorAll('input:not([type="hidden"]), select').forEach(el => {
+      form.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach(el => {
         if (el !== ageSelect) el.value = '';
       });
       ageSelect.value = holdAge;
@@ -312,8 +304,8 @@ else {
       });
     })();
 
-    function downloadJSON(filename, obj) {
-      const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    function downloadFile(filename, content, type) {
+      const blob = new Blob([content], { type });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -324,31 +316,21 @@ else {
       setTimeout(() => URL.revokeObjectURL(url), 500);
     }
 
-    function generatePDF(entry) {
-      if (!window.jspdf) {
-        err('PDF export unavailable; jsPDF library not loaded.');
-        return null;
-      }
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF();
-      doc.setFontSize(12);
-      doc.text('Photo Release', 10, 10);
-      doc.text(`Name: ${entry.fullName}`, 10, 20);
-      doc.text(`Over 18: ${entry.ageCheck}`, 10, 30);
-      if (entry.guardianName) doc.text(`Guardian: ${entry.guardianName} (${entry.guardianRelationship})`, 10, 40);
-      doc.text(`Date: ${entry.signatureDate}`, 10, 50);
-      doc.addImage(entry.modelSignature, 'JPEG', 10, 60, 50, 25);
-      if (entry.headshot) doc.addImage(entry.headshot, 'JPEG', 10, 90, 50, 50);
-      return doc;
+    function generateCSV(entries) {
+      const headers = ['timestamp', 'fullName', 'address1', 'address2', 'city', 'state', 'zip', 'phone', 'email', 'ageCheck', 'guardianName', 'guardianRelationship', 'additionalChildren', 'signatureDate'];
+      const rows = entries.map(entry =>
+        headers.map(h => `"${(entry[h] || '').replace(/"/g, '""')}"`).join(',')
+      );
+      return ['Timestamp,Full Name,Address Line 1,Address Line 2,City,State,Zip,Phone,Email,Over 18,Guardian Name,Guardian Relationship,Additional Children,Signature Date', ...rows].join('\n');
     }
 
     exportAllBtn?.addEventListener('click', async () => {
       const entries = await getAll();
       if (!entries.length) { err('No saved forms to export.'); return; }
       const bundle = { exported_at: new Date().toISOString(), count: entries.length, entries };
-      const fn = 'wildpx_releases_' + new Date().toISOString().slice(0, 10) + '_n' + entries.length + '.json';
-      downloadJSON(fn, bundle);
-      ok('Exported ' + entries.length + ' forms.');
+      const fn = `wildpx_releases_${new Date().toISOString().slice(0, 10)}_n${entries.length}.json`;
+      downloadFile(fn, JSON.stringify(bundle, null, 2), 'application/json');
+      ok(`Exported ${entries.length} forms.`);
     });
 
     exportClearBtn?.addEventListener('click', async () => {
@@ -356,8 +338,8 @@ else {
       if (!entries.length) { err('Nothing to export.'); return; }
       if (!confirm('Export all forms and then clear them from this device?')) return;
       const bundle = { exported_at: new Date().toISOString(), count: entries.length, entries };
-      const fn = 'wildpx_releases_' + new Date().toISOString().slice(0, 10) + '_n' + entries.length + '.json';
-      downloadJSON(fn, bundle);
+      const fn = `wildpx_releases_${new Date().toISOString().slice(0, 10)}_n${entries.length}.json`;
+      downloadFile(fn, JSON.stringify(bundle, null, 2), 'application/json');
       try {
         localStorage.removeItem('formEntries');
         memoryStore = [];
@@ -369,33 +351,13 @@ else {
       }
     });
 
-    printPdfBtn?.addEventListener('click', async () => {
-      if (!window.jspdf) {
-        err('PDF export unavailable; jsPDF library not loaded.');
-        return;
-      }
+    exportCsvBtn?.addEventListener('click', async () => {
       const entries = await getAll();
-      if (!entries.length) { err('No saved forms to print.'); return; }
-      for (const entry of entries) {
-        const doc = generatePDF(entry);
-        if (doc) {
-          const blob = doc.output('blob');
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `release_${entry.timestamp}.pdf`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setTimeout(() => URL.revokeObjectURL(url), 500);
-        }
-      }
-      ok('PDFs generated.');
-    });
-
-    window.addEventListener('unload', () => {
-      window.removeEventListener('resize', onResizeDebounced);
-      onResizeDebounced._cancel?.();
+      if (!entries.length) { err('No saved forms to export.'); return; }
+      const csv = generateCSV(entries);
+      const fn = `wildpx_releases_${new Date().toISOString().slice(0, 10)}_n${entries.length}.csv`;
+      downloadFile(fn, csv, 'text/csv');
+      ok(`Exported ${entries.length} forms as CSV.`);
     });
   });
 }
