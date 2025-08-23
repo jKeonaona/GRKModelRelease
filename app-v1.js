@@ -1,4 +1,4 @@
-/* ---------- WildPx Model Release — Clean, Verified Drop-In for PC and iPad ---------- */
+/* ---------- WildPx Model Release — PWA Kiosk Mode with Offline Support ---------- */
 function toast(kind, msg) {
   const banner = document.getElementById('banner');
   if (!banner) return;
@@ -17,15 +17,18 @@ function debounce(fn, ms) {
   return debounced;
 }
 
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations?.()
-    .then(rs => rs.forEach(r => r.unregister()))
-    .catch(e => console.error('Failed to unregister service worker:', e));
-}
-
 if (window.__WILDPX_LOCK__) { /* no-op */ }
 else {
   window.__WILDPX_LOCK__ = true;
+
+  // Register service worker for offline support
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('Service Worker registered:', reg))
+        .catch(e => console.error('Service Worker registration failed:', e));
+    });
+  }
 
   document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('releaseForm');
@@ -75,23 +78,41 @@ else {
       });
     }
 
+    // Signature Canvas Setup for PWA and Guided Access
     signatureCanvas.style.touchAction = 'none';
     signatureCanvas.style.userSelect = 'none';
+    signatureCanvas.style.position = 'relative';
+    signatureCanvas.style.zIndex = '1000';
     if (!signatureCanvas.style.height) signatureCanvas.style.height = '150px';
-    const pad = new window.SignaturePad(signatureCanvas, { penColor: '#000' });
+    const pad = new window.SignaturePad(signatureCanvas, {
+      penColor: '#000',
+      minWidth: 0.5,
+      maxWidth: 2.5,
+      throttle: 16,
+      dotSize: 1,
+      velocityFilterWeight: 0.7
+    });
     pad.onEnd = updateClearState;
 
-    // Prevent default touch behaviors on canvas for iPad
-    signatureCanvas.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-    }, { passive: false });
-    signatureCanvas.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-    }, { passive: false });
-    signatureCanvas.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      scheduleResize();
-    }, { passive: false });
+    // Enhanced touch and pointer events for iPad PWA
+    ['touchstart', 'touchmove', 'touchend'].forEach(event => {
+      signatureCanvas.addEventListener(event, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (event === 'touchend') {
+          scheduleResize();
+        }
+      }, { passive: false });
+    });
+    ['pointerdown', 'pointermove', 'pointerup'].forEach(event => {
+      signatureCanvas.addEventListener(event, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (event === 'pointerup') {
+          scheduleResize();
+        }
+      }, { passive: false });
+    });
 
     let lastCssW = 0;
     function resizeCanvasPreserve(canvas, padInst) {
@@ -101,7 +122,6 @@ else {
       if (cssW === lastCssW && padInst && !padInst.isEmpty()) return;
       lastCssW = cssW;
       const ratio = Math.max(window.devicePixelRatio || 1, 1);
-      const data = padInst && !padInst.isEmpty() ? padInst.toData() : null;
       const cssH = Math.floor(parseFloat(getComputedStyle(canvas).height) || 150);
       canvas.width = Math.floor(cssW * ratio);
       canvas.height = Math.floor(cssH * ratio);
@@ -110,6 +130,7 @@ else {
       const ctx = canvas.getContext('2d');
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       padInst.clear();
+      const data = padInst && !padInst.isEmpty() ? padInst.toData() : null;
       if (data && data.length) padInst.fromData(data);
     }
     function updateClearState() { if (clearBtn) clearBtn.disabled = pad.isEmpty(); }
@@ -137,10 +158,15 @@ else {
       if (gName) gName.required = minor;
       if (gRel) gRel.required = minor;
       if (signatureLabelEl) signatureLabelEl.textContent = minor ? 'Parent/Guardian Signature:' : 'Model Signature:';
-      scheduleResize();
+      requestAnimationFrame(scheduleResize);
+      // Force repaint for PWA rendering
+      form.style.display = 'none';
+      form.offsetHeight; // Trigger reflow
+      form.style.display = '';
     }
     ageSelect?.addEventListener('change', updateMinorUI);
     ageSelect?.addEventListener('input', updateMinorUI);
+    ageSelect?.addEventListener('touchend', updateMinorUI, { passive: false });
     updateMinorUI();
 
     form.addEventListener('submit', (e) => {
@@ -190,8 +216,9 @@ else {
       if (!logo || !adminBar) return;
       logo.style.pointerEvents = 'auto';
       logo.style.touchAction = 'none';
+      logo.style.zIndex = '1000';
       const REQUIRED_TAPS = 3;
-      const WINDOW_MS = 1000; // Increased for iPad reliability
+      const WINDOW_MS = 1200;
       let taps = 0, firstAt = 0, timer = null, lastTouch = 0;
       function reset() {
         taps = 0;
@@ -203,6 +230,7 @@ else {
       }
       function toggle() {
         adminBar.style.display = (adminBar.style.display === 'none' || !adminBar.style.display) ? 'flex' : 'none';
+        adminBar.offsetHeight; // Trigger reflow
       }
       function handleTap(isTouch) {
         const now = Date.now();
@@ -221,15 +249,13 @@ else {
           toggle();
         }
       }
-      logo.addEventListener('touchstart', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-      }, { passive: false });
-      logo.addEventListener('touchend', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        handleTap(true);
-      }, { passive: false });
+      ['touchstart', 'touchend'].forEach(event => {
+        logo.addEventListener(event, (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (event === 'touchend') handleTap(true);
+        }, { passive: false });
+      });
       logo.addEventListener('click', (ev) => {
         if (Date.now() - lastTouch < 700) return;
         ev.preventDefault();
