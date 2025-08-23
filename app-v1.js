@@ -1,4 +1,4 @@
-/* ---------- WildPx Model Release — PWA Kiosk Mode with Offline Fixes ---------- */
+/* ---------- WildPx Model Release — PWA Kiosk Mode with Offline Saving ---------- */
 function toast(kind, msg) {
   const banner = document.getElementById('banner');
   if (!banner) return;
@@ -30,7 +30,7 @@ else {
     });
   }
 
-  // IndexedDB setup
+  // IndexedDB setup for fallback storage
   const DB_NAME = 'WildPxDB';
   const STORE_NAME = 'formEntries';
   let db;
@@ -44,11 +44,10 @@ else {
       };
       request.onsuccess = (event) => {
         db = event.target.result;
-        console.log('IndexedDB opened successfully');
         resolve(db);
       };
       request.onerror = (event) => {
-        console.error('IndexedDB open error:', event.target.error);
+        console.error('IndexedDB error:', event.target.error);
         reject(event.target.error);
       };
     });
@@ -60,14 +59,8 @@ else {
       const transaction = db.transaction([STORE_NAME], 'readonly');
       const store = transaction.objectStore(STORE_NAME);
       const request = store.getAll();
-      request.onsuccess = () => {
-        console.log('IndexedDB getAll:', request.result.length, 'entries');
-        resolve(request.result);
-      };
-      request.onerror = () => {
-        console.error('IndexedDB getAll error:', request.error);
-        reject(request.error);
-      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
     });
   }
 
@@ -78,25 +71,15 @@ else {
       const store = transaction.objectStore(STORE_NAME);
       store.clear();
       entries.forEach(entry => store.add(entry));
-      transaction.oncomplete = () => {
-        console.log('IndexedDB setAll: saved', entries.length, 'entries');
-        resolve();
-      };
-      transaction.onerror = () => {
-        console.error('IndexedDB setAll error:', transaction.error);
-        reject(transaction.error);
-      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
   }
 
   async function getAll() {
     try {
       const lsData = localStorage.getItem('formEntries');
-      if (lsData) {
-        const data = JSON.parse(lsData) || [];
-        console.log('localStorage get:', data.length, 'entries');
-        return data;
-      }
+      if (lsData) return JSON.parse(lsData) || [];
     } catch (e) {
       console.error('localStorage get failed:', e);
     }
@@ -110,40 +93,20 @@ else {
 
   async function setAll(entries) {
     try {
-      await setAllToDB(entries);
-      try {
-        localStorage.setItem('formEntries', JSON.stringify(entries));
-        console.log('localStorage set:', entries.length, 'entries');
-      } catch (lsError) {
-        console.warn('localStorage set failed, using IndexedDB only:', lsError);
-      }
+      localStorage.setItem('formEntries', JSON.stringify(entries));
       updateSavedCount();
       return true;
-    } catch (dbError) {
-      console.error('IndexedDB set failed:', dbError);
+    } catch (e) {
+      console.error('localStorage set failed:', e);
       try {
-        localStorage.setItem('formEntries', JSON.stringify(entries));
-        console.log('localStorage set:', entries.length, 'entries');
+        await setAllToDB(entries);
         updateSavedCount();
         return true;
-      } catch (lsError) {
-        console.error('localStorage set failed:', lsError);
+      } catch (dbError) {
+        console.error('IndexedDB set failed:', dbError);
         return false;
       }
     }
-  }
-
-  // Check storage quota
-  async function checkStorageQuota() {
-    if (navigator.storage && navigator.storage.estimate) {
-      const { usage, quota } = await navigator.storage.estimate();
-      console.log(`Storage: ${usage} bytes used, ${quota} bytes available`);
-      if (usage > 0.9 * quota) {
-        console.warn('Storage nearly full');
-        return false;
-      }
-    }
-    return true;
   }
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -189,19 +152,12 @@ else {
         const f = ev.target?.files?.[0];
         if (!f) { headshotDataURL = ''; return; }
         const r = new FileReader();
-        r.onload = () => {
-          headshotDataURL = String(r.result || '');
-          console.log('Headshot loaded, size:', headshotDataURL.length, 'bytes');
-        };
-        r.onerror = () => {
-          headshotDataURL = '';
-          console.error('Headshot read error');
-        };
+        r.onload = () => { headshotDataURL = String(r.result || ''); };
+        r.onerror = () => { headshotDataURL = ''; };
         r.readAsDataURL(f);
       });
     }
 
-    // Signature Canvas Setup
     signatureCanvas.style.touchAction = 'none';
     signatureCanvas.style.userSelect = 'none';
     signatureCanvas.style.position = 'relative';
@@ -215,29 +171,25 @@ else {
       dotSize: 1,
       velocityFilterWeight: 0.7
     });
-    pad.onEnd = () => {
-      updateClearState();
-      console.log('Signature drawn, size:', pad.toDataURL('image/jpeg', 0.7).length, 'bytes');
-    };
+    pad.onEnd = updateClearState;
 
-    // Enhanced touch/pointer events
     ['touchstart', 'touchmove', 'touchend'].forEach(event => {
       signatureCanvas.addEventListener(event, (e) => {
-        console.log(`Canvas ${event}`);
+        e.preventDefault();
         e.stopPropagation();
         if (event === 'touchend') {
           scheduleResize();
         }
-      }, { passive: true });
+      }, { passive: false });
     });
     ['pointerdown', 'pointermove', 'pointerup'].forEach(event => {
       signatureCanvas.addEventListener(event, (e) => {
-        console.log(`Canvas ${event}`);
+        e.preventDefault();
         e.stopPropagation();
         if (event === 'pointerup') {
           scheduleResize();
         }
-      }, { passive: true });
+      }, { passive: false });
     });
 
     let lastCssW = 0;
@@ -258,7 +210,6 @@ else {
       padInst.clear();
       const data = padInst && !padInst.isEmpty() ? padInst.toData() : null;
       if (data && data.length) padInst.fromData(data);
-      console.log('Canvas resized:', cssW, cssH);
     }
     function updateClearState() { if (clearBtn) clearBtn.disabled = pad.isEmpty(); }
     function scheduleResize() { resizeCanvasPreserve(signatureCanvas, pad); }
@@ -278,7 +229,6 @@ else {
     function isMinor() { return String(ageSelect?.value || '').trim().toLowerCase() === 'no'; }
     function updateMinorUI() {
       const minor = isMinor();
-      console.log('updateMinorUI called, minor:', minor);
       if (guardianSection) guardianSection.style.display = minor ? 'block' : 'none';
       if (childrenSection) childrenSection.style.display = minor ? 'block' : 'none';
       const gName = form.elements['guardianName'];
@@ -290,21 +240,14 @@ else {
       form.style.display = 'none';
       form.offsetHeight; // Trigger reflow
       form.style.display = '';
-      console.log('Minor UI updated:', guardianSection?.style.display, childrenSection?.style.display);
     }
-    if (ageSelect) {
-      ['change', 'input', 'touchend', 'click'].forEach(event => {
-        ageSelect.addEventListener(event, (e) => {
-          console.log(`Age select ${event}`);
-          updateMinorUI();
-        }, { passive: true });
-      });
-      updateMinorUI();
-    }
+    ageSelect?.addEventListener('change', updateMinorUI);
+    ageSelect?.addEventListener('input', updateMinorUI);
+    ageSelect?.addEventListener('touchend', updateMinorUI, { passive: false });
+    updateMinorUI();
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      console.log('Form submit triggered');
       const fullName = (form.elements['fullName']?.value || '').trim();
       if (!fullName) { err('Please enter the model’s full name.'); return; }
       if (!ageSelect?.value) { err('Please select Yes/No for age.'); return; }
@@ -317,59 +260,24 @@ else {
       const fd = new FormData(form);
       const data = Object.fromEntries(fd.entries());
       data.timestamp = new Date().toISOString();
-      const sigPNG = pad.toDataURL('image/jpeg', 0.7);
+      const sigPNG = pad.toDataURL('image/png');
       data.modelSignature = sigPNG;
       data.guardianSignature = minor ? sigPNG : '';
       if (signatureData) signatureData.value = sigPNG;
       if (typeof headshotDataURL === 'string' && headshotDataURL.startsWith('data:image/')) {
-        if (headshotDataURL.length > 500_000) {
-          const img = new Image();
-          img.src = headshotDataURL;
-          await new Promise(resolve => { img.onload = resolve; });
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width * 0.25;
-          canvas.height = img.height * 0.25;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          headshotDataURL = canvas.toDataURL('image/jpeg', 0.7);
-        }
         data.headshot = headshotDataURL;
       } else {
         if ('headshot' in data) delete data.headshot;
       }
-      console.log('Form data:', data);
       const all = await getAll();
-      console.log('Current entries:', all.length);
       all.push(data);
-      const canSave = await checkStorageQuota();
-      if (!canSave) {
-        err('Storage is full. Please export and clear existing data.');
-        return;
-      }
       const saved = await setAll(all);
       if (!saved) {
         err('Could not save locally. Storage may be disabled or full.');
-        // Always clear form to allow next user
-        const holdAge = ageSelect.value;
-        form.reset();
-        form.querySelectorAll('input:not([type="hidden"]), select').forEach(el => {
-          if (el !== ageSelect) el.value = '';
-        });
-        ageSelect.value = holdAge;
-        pad.clear();
-        headshotDataURL = '';
-        if (headIn) headIn.value = '';
-        updateMinorUI();
-        updateClearState();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        console.log('Form cleared despite save failure');
         return;
       }
       const holdAge = ageSelect.value;
       form.reset();
-      form.querySelectorAll('input:not([type="hidden"]), select').forEach(el => {
-        if (el !== ageSelect) el.value = '';
-      });
       ageSelect.value = holdAge;
       pad.clear();
       headshotDataURL = '';
@@ -377,7 +285,6 @@ else {
       updateMinorUI();
       updateClearState();
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      console.log('Form cleared, saved entries:', all.length);
       ok('Saved locally. Total: ' + all.length);
     }, { capture: true });
 
@@ -387,7 +294,7 @@ else {
       logo.style.touchAction = 'none';
       logo.style.zIndex = '1000';
       const REQUIRED_TAPS = 3;
-      const WINDOW_MS = 2000; // Increased for Guided Access
+      const WINDOW_MS = 1200;
       let taps = 0, firstAt = 0, timer = null, lastTouch = 0;
       function reset() {
         taps = 0;
@@ -400,7 +307,6 @@ else {
       function toggle() {
         adminBar.style.display = (adminBar.style.display === 'none' || !adminBar.style.display) ? 'flex' : 'none';
         adminBar.offsetHeight; // Trigger reflow
-        console.log('Admin bar toggled:', adminBar.style.display);
       }
       function handleTap(isTouch) {
         const now = Date.now();
@@ -410,10 +316,8 @@ else {
           taps = 1;
           if (timer) clearTimeout(timer);
           timer = setTimeout(reset, WINDOW_MS + 100);
-          console.log(`Tap ${taps}/3 started at ${now}`);
         } else {
           taps++;
-          console.log(`Tap ${taps}/3 at ${now}`);
         }
         if (taps >= REQUIRED_TAPS) {
           if (timer) clearTimeout(timer);
@@ -423,17 +327,17 @@ else {
       }
       ['touchstart', 'touchend'].forEach(event => {
         logo.addEventListener(event, (ev) => {
-          console.log(`Logo ${event}`);
+          ev.preventDefault();
           ev.stopPropagation();
           if (event === 'touchend') handleTap(true);
-        }, { passive: true });
+        }, { passive: false });
       });
       logo.addEventListener('click', (ev) => {
         if (Date.now() - lastTouch < 700) return;
-        console.log('Logo click');
+        ev.preventDefault();
         ev.stopPropagation();
         handleTap(false);
-      }, { passive: true });
+      }, { passive: false });
     })();
 
     function downloadJSON(filename, obj) {
