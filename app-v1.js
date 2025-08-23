@@ -1,4 +1,4 @@
-/* ---------- WildPx Model Release — PWA Kiosk Mode with Offline Support ---------- */
+/* ---------- WildPx Model Release — PWA Kiosk Mode with Offline Saving Fix ---------- */
 function toast(kind, msg) {
   const banner = document.getElementById('banner');
   if (!banner) return;
@@ -30,6 +30,110 @@ else {
     });
   }
 
+  // IndexedDB setup
+  const DB_NAME = 'WildPxDB';
+  const STORE_NAME = 'formEntries';
+  let db;
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        db.createObjectStore(STORE_NAME, { keyPath: 'timestamp' });
+      };
+      request.onsuccess = (event) => {
+        db = event.target.result;
+        console.log('IndexedDB opened successfully');
+        resolve(db);
+      };
+      request.onerror = (event) => {
+        console.error('IndexedDB open error:', event.target.error);
+        reject(event.target.error);
+      };
+    });
+  }
+
+  async function getAllFromDB() {
+    if (!db) await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        console.log('IndexedDB getAll:', request.result.length, 'entries');
+        resolve(request.result);
+      };
+      request.onerror = () => {
+        console.error('IndexedDB getAll error:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  async function setAllToDB(entries) {
+    if (!db) await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      store.clear();
+      entries.forEach(entry => store.add(entry));
+      transaction.oncomplete = () => {
+        console.log('IndexedDB setAll: saved', entries.length, 'entries');
+        resolve();
+      };
+      transaction.onerror = () => {
+        console.error('IndexedDB setAll error:', transaction.error);
+        reject(transaction.error);
+      };
+    });
+  }
+
+  async function getAll() {
+    try {
+      const lsData = localStorage.getItem('formEntries');
+      if (lsData) {
+        const data = JSON.parse(lsData) || [];
+        console.log('localStorage get:', data.length, 'entries');
+        return data;
+      }
+    } catch (e) {
+      console.error('localStorage get failed:', e);
+    }
+    try {
+      return await getAllFromDB();
+    } catch (e) {
+      console.error('IndexedDB get failed:', e);
+      return [];
+    }
+  }
+
+  async function setAll(entries) {
+    // Prioritize IndexedDB for iPad PWA
+    try {
+      await setAllToDB(entries);
+      try {
+        localStorage.setItem('formEntries', JSON.stringify(entries));
+        console.log('localStorage set:', entries.length, 'entries');
+      } catch (lsError) {
+        console.warn('localStorage set failed, using IndexedDB only:', lsError);
+      }
+      updateSavedCount();
+      return true;
+    } catch (dbError) {
+      console.error('IndexedDB set failed:', dbError);
+      try {
+        localStorage.setItem('formEntries', JSON.stringify(entries));
+        console.log('localStorage set:', entries.length, 'entries');
+        updateSavedCount();
+        return true;
+      } catch (lsError) {
+        console.error('localStorage set failed:', lsError);
+        return false;
+      }
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('releaseForm');
     const savedCountEl = document.getElementById('savedCount');
@@ -53,10 +157,11 @@ else {
     if (!signatureCanvas) { err('Signature canvas #signatureCanvas not found.'); return; }
     if (!window.SignaturePad) { err('SignaturePad library is missing.'); return; }
 
-    const KEY = 'formEntries';
-    const getAll = () => { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; } };
-    const setAll = (arr) => { localStorage.setItem(KEY, JSON.stringify(arr)); updateSavedCount(); };
-    function updateSavedCount() { if (savedCountEl) savedCountEl.textContent = 'Saved: ' + getAll().length; }
+    function updateSavedCount() {
+      getAll().then(entries => {
+        if (savedCountEl) savedCountEl.textContent = 'Saved: ' + entries.length;
+      });
+    }
     updateSavedCount();
 
     function setTodayIfBlank() {
@@ -72,13 +177,18 @@ else {
         const f = ev.target?.files?.[0];
         if (!f) { headshotDataURL = ''; return; }
         const r = new FileReader();
-        r.onload = () => { headshotDataURL = String(r.result || ''); };
-        r.onerror = () => { headshotDataURL = ''; };
+        r.onload = () => {
+          headshotDataURL = String(r.result || '');
+          console.log('Headshot loaded, size:', headshotDataURL.length, 'bytes');
+        };
+        r.onerror = () => {
+          headshotDataURL = '';
+          console.error('Headshot read error');
+        };
         r.readAsDataURL(f);
       });
     }
 
-    // Signature Canvas Setup for PWA and Guided Access
     signatureCanvas.style.touchAction = 'none';
     signatureCanvas.style.userSelect = 'none';
     signatureCanvas.style.position = 'relative';
@@ -92,9 +202,11 @@ else {
       dotSize: 1,
       velocityFilterWeight: 0.7
     });
-    pad.onEnd = updateClearState;
+    pad.onEnd = () => {
+      updateClearState();
+      console.log('Signature drawn, size:', pad.toDataURL('image/jpeg', 0.7).length, 'bytes');
+    };
 
-    // Enhanced touch and pointer events for iPad PWA
     ['touchstart', 'touchmove', 'touchend'].forEach(event => {
       signatureCanvas.addEventListener(event, (e) => {
         e.preventDefault();
@@ -151,6 +263,7 @@ else {
     function isMinor() { return String(ageSelect?.value || '').trim().toLowerCase() === 'no'; }
     function updateMinorUI() {
       const minor = isMinor();
+      console.log('updateMinorUI called, minor:', minor);
       if (guardianSection) guardianSection.style.display = minor ? 'block' : 'none';
       if (childrenSection) childrenSection.style.display = minor ? 'block' : 'none';
       const gName = form.elements['guardianName'];
@@ -159,7 +272,6 @@ else {
       if (gRel) gRel.required = minor;
       if (signatureLabelEl) signatureLabelEl.textContent = minor ? 'Parent/Guardian Signature:' : 'Model Signature:';
       requestAnimationFrame(scheduleResize);
-      // Force repaint for PWA rendering
       form.style.display = 'none';
       form.offsetHeight; // Trigger reflow
       form.style.display = '';
@@ -169,7 +281,7 @@ else {
     ageSelect?.addEventListener('touchend', updateMinorUI, { passive: false });
     updateMinorUI();
 
-    form.addEventListener('submit', (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fullName = (form.elements['fullName']?.value || '').trim();
       if (!fullName) { err('Please enter the model’s full name.'); return; }
@@ -183,21 +295,44 @@ else {
       const fd = new FormData(form);
       const data = Object.fromEntries(fd.entries());
       data.timestamp = new Date().toISOString();
-      const sigPNG = pad.toDataURL('image/png');
+      const sigPNG = pad.toDataURL('image/jpeg', 0.7); // Compress signature
       data.modelSignature = sigPNG;
       data.guardianSignature = minor ? sigPNG : '';
       if (signatureData) signatureData.value = sigPNG;
       if (typeof headshotDataURL === 'string' && headshotDataURL.startsWith('data:image/')) {
+        // Compress headshot if needed
+        if (headshotDataURL.length > 1_000_000) { // >1MB
+          const img = new Image();
+          img.src = headshotDataURL;
+          await new Promise(resolve => { img.onload = resolve; });
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width * 0.5;
+          canvas.height = img.height * 0.5;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          headshotDataURL = canvas.toDataURL('image/jpeg', 0.7);
+        }
         data.headshot = headshotDataURL;
       } else {
         if ('headshot' in data) delete data.headshot;
       }
-      try {
-        const all = getAll();
-        all.push(data);
-        setAll(all);
-      } catch {
-        err('Could not save locally. LocalStorage may be disabled or full.');
+      console.log('Form data:', data);
+      const all = await getAll();
+      console.log('Current entries:', all.length);
+      all.push(data);
+      const saved = await setAll(all);
+      if (!saved) {
+        err('Could not save locally. Storage may be disabled or full.');
+        // Optional: Clear form even on save failure (uncomment if desired)
+        // const holdAge = ageSelect.value;
+        // form.reset();
+        // ageSelect.value = holdAge;
+        // pad.clear();
+        // headshotDataURL = '';
+        // if (headIn) headIn.value = '';
+        // updateMinorUI();
+        // updateClearState();
+        // window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
       const holdAge = ageSelect.value;
@@ -209,7 +344,8 @@ else {
       updateMinorUI();
       updateClearState();
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      ok('Saved locally. Total: ' + getAll().length);
+      console.log('Form cleared, saved entries:', all.length);
+      ok('Saved locally. Total: ' + all.length);
     }, { capture: true });
 
     (function setupTripleTap() {
@@ -240,13 +376,16 @@ else {
           taps = 1;
           if (timer) clearTimeout(timer);
           timer = setTimeout(reset, WINDOW_MS + 100);
+          console.log(`Tap ${taps}/3 started at ${now}`);
         } else {
           taps++;
+          console.log(`Tap ${taps}/3 at ${now}`);
         }
         if (taps >= REQUIRED_TAPS) {
           if (timer) clearTimeout(timer);
           reset();
           toggle();
+          console.log('Admin bar toggled');
         }
       }
       ['touchstart', 'touchend'].forEach(event => {
@@ -283,27 +422,36 @@ else {
       const lines = [headers.join(',')].concat(rows.map(r => headers.map(h => esc(r[h])).join(',')));
       return lines.join('\n');
     }
-    exportAllBtn?.addEventListener('click', () => {
-      const entries = getAll();
+    exportAllBtn?.addEventListener('click', async () => {
+      const entries = await getAll();
       if (!entries.length) { err('No saved forms to export.'); return; }
       const bundle = { exported_at: new Date().toISOString(), count: entries.length, entries };
       const fn = 'wildpx_releases_' + new Date().toISOString().slice(0, 10) + '_n' + entries.length + '.json';
       downloadJSON(fn, bundle);
       ok('Exported ' + entries.length + ' forms.');
     });
-    exportClearBtn?.addEventListener('click', () => {
-      const entries = getAll();
+    exportClearBtn?.addEventListener('click', async () => {
+      const entries = await getAll();
       if (!entries.length) { err('Nothing to export.'); return; }
       if (!confirm('Export all forms and then clear them from this device?')) return;
       const bundle = { exported_at: new Date().toISOString(), count: entries.length, entries };
       const fn = 'wildpx_releases_' + new Date().toISOString().slice(0, 10) + '_n' + entries.length + '.json';
       downloadJSON(fn, bundle);
-      localStorage.removeItem(KEY);
-      updateSavedCount();
-      ok('Exported and cleared.');
+      try {
+        localStorage.removeItem('formEntries');
+        if (db) {
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          transaction.objectStore(STORE_NAME).clear();
+        }
+        updateSavedCount();
+        ok('Exported and cleared.');
+      } catch (e) {
+        console.error('Clear storage failed:', e);
+        err('Could not clear storage.');
+      }
     });
-    exportCsvBtn?.addEventListener('click', () => {
-      const entries = getAll();
+    exportCsvBtn?.addEventListener('click', async () => {
+      const entries = await getAll();
       if (!entries.length) { err('No saved forms to export.'); return; }
       const csv = toCSV(entries);
       const blob = new Blob([csv], { type: 'text/csv' });
